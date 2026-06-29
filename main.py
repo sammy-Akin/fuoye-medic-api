@@ -202,6 +202,17 @@ async def predict(request: SymptomRequest):
         all_predictions=all_predictions
     )
 
+@app.get("/test-gemini")
+async def test_gemini():
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(GEMINI_URL, json={
+                "contents": [{"parts": [{"text": "Say hello in one sentence"}]}]
+            })
+            return response.json()
+    except Exception as e:
+        return {"error": str(e)}
+    
 @app.get("/health")
 def health_check():
     return {"status": "healthy"}
