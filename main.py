@@ -38,7 +38,7 @@ DISEASES = metadata['diseases']
 
 # Gemini API Key from environment variable
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={GEMINI_API_KEY}"
 
 # ─── RED FLAG RULES ─────────────────────────────────────────────────────────
 RED_FLAG_RULES = {
