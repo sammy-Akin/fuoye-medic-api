@@ -6,12 +6,13 @@ import joblib
 import json
 import numpy as np
 import os
+import httpx
 
 # Initialize app
 app = FastAPI(
-    title="Nigerian Health Advisory API",
+    title="FUOYE Medic - Nigerian Health Advisory API",
     description="AI-powered health advisory system for Nigerian diseases",
-    version="1.0.0"
+    version="2.0.0"
 )
 
 # CORS — allows Flutter app to call this API
@@ -34,6 +35,10 @@ with open(os.path.join(BASE_DIR, 'model_metadata.json'), 'r') as f:
 
 SYMPTOMS = metadata['symptoms']
 DISEASES = metadata['diseases']
+
+# Gemini API Key from environment variable
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
 
 # ─── RED FLAG RULES ─────────────────────────────────────────────────────────
 RED_FLAG_RULES = {
@@ -58,10 +63,48 @@ def check_red_flags(text: str):
             return level, message
     return None, None
 
+# ─── GEMINI ADVISORY ─────────────────────────────────────────────────────────
+async def get_gemini_advisory(disease: str, symptoms: List[str], confidence: float) -> str:
+    prompt = f"""You are FUOYE Medic, a friendly and professional health advisory assistant for Nigerian patients.
+
+A patient has presented with the following symptoms: {', '.join(symptoms)}.
+Based on ML analysis, the predicted condition is: {disease} (confidence: {confidence}%).
+
+Please provide a helpful health advisory response that includes:
+1. A brief explanation of {disease} in simple terms
+2. Common causes relevant to the Nigerian context
+3. What the patient should do next (see a doctor, rest, hydration, etc.)
+4. Any warning signs to watch out for
+5. General prevention tips
+
+Keep the response friendly, clear, and under 200 words.
+Do not provide specific drug dosages.
+Always recommend seeing a qualified doctor for proper diagnosis.
+End with an encouraging note."""
+
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt}
+                ]
+            }
+        ]
+    }
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.post(GEMINI_URL, json=payload)
+        data = response.json()
+
+        if "candidates" in data:
+            return data["candidates"][0]["content"]["parts"][0]["text"]
+        else:
+            return f"Based on your symptoms, you may have {disease}. Please consult a qualified doctor for proper diagnosis and treatment."
+
 # ─── REQUEST / RESPONSE MODELS ───────────────────────────────────────────────
 class SymptomRequest(BaseModel):
-    symptoms: List[str]          # list of symptom names user has
-    user_text: Optional[str] = ""  # raw voice/text input for red flag check
+    symptoms: List[str]
+    user_text: Optional[str] = ""
 
 class PredictionResponse(BaseModel):
     source: str
@@ -69,6 +112,7 @@ class PredictionResponse(BaseModel):
     confidence: Optional[float] = None
     level: str
     message: str
+    advisory: Optional[str] = None
     all_predictions: Optional[dict] = None
 
 # ─── ENDPOINTS ───────────────────────────────────────────────────────────────
@@ -76,15 +120,14 @@ class PredictionResponse(BaseModel):
 @app.get("/")
 def root():
     return {
-        "message": "Nigerian Health Advisory API is running",
-        "version": "1.0.0",
+        "message": "FUOYE Medic - Nigerian Health Advisory API is running",
+        "version": "2.0.0",
         "diseases": len(DISEASES),
         "symptoms": len(SYMPTOMS)
     }
 
 @app.get("/symptoms")
 def get_symptoms():
-    """Returns the full list of supported symptoms"""
     return {
         "total": len(SYMPTOMS),
         "symptoms": SYMPTOMS
@@ -92,21 +135,13 @@ def get_symptoms():
 
 @app.get("/diseases")
 def get_diseases():
-    """Returns the full list of supported diseases"""
     return {
         "total": len(DISEASES),
         "diseases": DISEASES
     }
 
 @app.post("/predict", response_model=PredictionResponse)
-def predict(request: SymptomRequest):
-    """
-    Main prediction endpoint.
-    1. Checks red flags first
-    2. Runs ML classifier
-    3. Returns disease prediction with confidence
-    """
-
+async def predict(request: SymptomRequest):
     # Step 1 — Red Flag Check
     if request.user_text:
         level, message = check_red_flags(request.user_text)
@@ -114,20 +149,18 @@ def predict(request: SymptomRequest):
             return PredictionResponse(
                 source="RED_FLAG_OVERRIDE",
                 level=level,
-                message=message
+                message=message,
+                advisory="Please seek immediate medical attention. Do not delay."
             )
 
     # Step 2 — Build symptom vector
     symptom_vector = np.zeros(len(SYMPTOMS))
-    unrecognized = []
 
     for symptom in request.symptoms:
         symptom_clean = symptom.lower().strip().replace(' ', '_')
         if symptom_clean in SYMPTOMS:
             idx = SYMPTOMS.index(symptom_clean)
             symptom_vector[idx] = 1
-        else:
-            unrecognized.append(symptom)
 
     # Step 3 — ML Prediction
     prediction = model.predict([symptom_vector])[0]
@@ -135,21 +168,23 @@ def predict(request: SymptomRequest):
     disease = le.inverse_transform([prediction])[0]
     confidence = round(float(max(probabilities)) * 100, 2)
 
-    # All disease probabilities
     all_predictions = {
         le.inverse_transform([i])[0]: round(float(p) * 100, 2)
         for i, p in enumerate(probabilities)
         if p > 0.01
     }
 
-    # Step 4 — Confidence threshold check
+    # Step 4 — Get Gemini Advisory
+    advisory = await get_gemini_advisory(disease, request.symptoms, confidence)
+
     if confidence < 60:
         return PredictionResponse(
             source="LOW_CONFIDENCE",
             disease=disease,
             confidence=confidence,
             level="INFO",
-            message=f"Symptoms are unclear. Please provide more details or consult a doctor.",
+            message="Symptoms are unclear. Please provide more details or consult a doctor.",
+            advisory=advisory,
             all_predictions=all_predictions
         )
 
@@ -159,6 +194,7 @@ def predict(request: SymptomRequest):
         confidence=confidence,
         level="INFO",
         message=f"Based on your symptoms, this may be {disease}. Please consult a qualified doctor for proper diagnosis.",
+        advisory=advisory,
         all_predictions=all_predictions
     )
 

@@ -5,3 +5,4 @@ joblib
 numpy
 pydantic
 python-multipart
+httpx
