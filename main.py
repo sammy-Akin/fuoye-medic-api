@@ -92,14 +92,18 @@ End with an encouraging note."""
         ]
     }
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(GEMINI_URL, json=payload)
-        data = response.json()
-
-        if "candidates" in data:
-            return data["candidates"][0]["content"]["parts"][0]["text"]
-        else:
-            return f"Based on your symptoms, you may have {disease}. Please consult a qualified doctor for proper diagnosis and treatment."
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(GEMINI_URL, json=payload)
+            data = response.json()
+            if "candidates" in data and len(data["candidates"]) > 0:
+                candidate = data["candidates"][0]
+                if "content" in candidate and "parts" in candidate["content"]:
+                    return candidate["content"]["parts"][0]["text"]
+            error_msg = data.get("error", {}).get("message", "Unknown error")
+            return f"Advisory unavailable ({error_msg}). You may have {disease}. Please consult a qualified doctor."
+    except Exception as e:
+        return f"Advisory service temporarily unavailable. Based on your symptoms, you may have {disease}. Please consult a qualified doctor."
 
 # ─── REQUEST / RESPONSE MODELS ───────────────────────────────────────────────
 class SymptomRequest(BaseModel):
