@@ -62,7 +62,67 @@ def check_red_flags(text: str):
         if keyword in text_lower:
             return level, message
     return None, None
+# ─── GEMINI SYMPTOM EXTRACTION ───────────────────────────────────────────────
+async def extract_symptoms_with_gemini(user_text: str) -> List[str]:
+    """
+    Uses Gemini to convert natural language symptom descriptions
+    into structured symptom codes matching our trained model.
+    """
+    if not user_text:
+        return []
 
+    symptom_list_str = ", ".join(SYMPTOMS)
+
+    prompt = f"""You are a medical symptom extraction assistant.
+
+A patient described their condition in their own words:
+"{user_text}"
+
+Here is the EXACT list of valid symptom codes you must choose from:
+{symptom_list_str}
+
+Task: Identify which symptoms from the list above match what the patient described.
+Consider synonyms, descriptive language, and context. For example:
+- "biting stomach pain" or "tummy pain" → stomach_pain or abdominal_pain
+- "can't breathe well" → breathlessness
+- "throwing up" → vomiting
+- "running stomach" → diarrhoea
+
+Return ONLY a comma-separated list of matching symptom codes from the list above, 
+exactly as they appear in the list (with underscores). 
+If no symptoms match, return "none".
+Do not explain. Do not add extra text. Only return the comma-separated codes."""
+
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt}
+                ]
+            }
+        ]
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(GEMINI_URL, json=payload)
+            data = response.json()
+
+            if "candidates" in data and len(data["candidates"]) > 0:
+                candidate = data["candidates"][0]
+                if "content" in candidate and "parts" in candidate["content"]:
+                    raw_text = candidate["content"]["parts"][0]["text"].strip()
+
+                    if raw_text.lower() == "none":
+                        return []
+
+                    extracted = [s.strip() for s in raw_text.split(",")]
+                    valid_symptoms = [s for s in extracted if s in SYMPTOMS]
+                    return valid_symptoms
+
+            return []
+    except Exception as e:
+        return []
 # ─── GEMINI ADVISORY ─────────────────────────────────────────────────────────
 async def get_gemini_advisory(disease: str, symptoms: List[str], confidence: float) -> str:
     prompt = f"""You are FUOYE Medic, a friendly and professional health advisory assistant for Nigerian patients.
@@ -157,16 +217,24 @@ async def predict(request: SymptomRequest):
                 advisory="Please seek immediate medical attention. Do not delay."
             )
 
-    # Step 2 — Build symptom vector
+    # Step 2 — Extract symptoms from natural language using Gemini
+    extracted_symptoms = []
+    if request.user_text:
+        extracted_symptoms = await extract_symptoms_with_gemini(request.user_text)
+
+    # Combine manually selected chips + Gemini-extracted symptoms (no duplicates)
+    all_symptoms = list(set(request.symptoms + extracted_symptoms))
+
+    # Step 3 — Build symptom vector
     symptom_vector = np.zeros(len(SYMPTOMS))
 
-    for symptom in request.symptoms:
+    for symptom in all_symptoms:
         symptom_clean = symptom.lower().strip().replace(' ', '_')
         if symptom_clean in SYMPTOMS:
             idx = SYMPTOMS.index(symptom_clean)
             symptom_vector[idx] = 1
 
-    # Step 3 — ML Prediction
+    # Step 4 — ML Prediction
     prediction = model.predict([symptom_vector])[0]
     probabilities = model.predict_proba([symptom_vector])[0]
     disease = le.inverse_transform([prediction])[0]
@@ -178,8 +246,8 @@ async def predict(request: SymptomRequest):
         if p > 0.01
     }
 
-    # Step 4 — Get Gemini Advisory
-    advisory = await get_gemini_advisory(disease, request.symptoms, confidence)
+    # Step 5 — Get Gemini Advisory
+    advisory = await get_gemini_advisory(disease, all_symptoms, confidence)
 
     if confidence < 60:
         return PredictionResponse(
@@ -201,7 +269,7 @@ async def predict(request: SymptomRequest):
         advisory=advisory,
         all_predictions=all_predictions
     )
-
+    
 @app.get("/test-gemini")
 async def test_gemini():
     try:
