@@ -157,7 +157,7 @@ async def extract_symptoms_with_groq(user_text: str) -> List[str]:
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "llama3-8b-8192",
+                    "model": "llama-3.3-70b-versatile",
                     "messages": [{"role": "user", "content": build_extraction_prompt(user_text)}],
                     "temperature": 0.1,
                     "max_tokens": 500
@@ -181,7 +181,7 @@ async def get_groq_advisory(disease: str, symptoms: List[str], confidence: float
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "llama3-8b-8192",
+                    "model": "llama-3.3-70b-versatile",
                     "messages": [{"role": "user", "content": build_advisory_prompt(disease, symptoms, confidence)}],
                     "temperature": 0.7,
                     "max_tokens": 500
