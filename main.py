@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
@@ -12,10 +12,10 @@ import httpx
 app = FastAPI(
     title="FUOYE Medic - Nigerian Health Advisory API",
     description="AI-powered health advisory system for Nigerian diseases",
-    version="2.0.0"
+    version="3.0.0"
 )
 
-# CORS — allows Flutter app to call this API
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -26,7 +26,6 @@ app.add_middleware(
 
 # Load model, encoder and metadata
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
 model = joblib.load(os.path.join(BASE_DIR, 'health_classifier.pkl'))
 le = joblib.load(os.path.join(BASE_DIR, 'label_encoder.pkl'))
 
@@ -36,11 +35,13 @@ with open(os.path.join(BASE_DIR, 'model_metadata.json'), 'r') as f:
 SYMPTOMS = metadata['symptoms']
 DISEASES = metadata['diseases']
 
-# Gemini API Key from environment variable
+# API Keys
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
-# ─── RED FLAG RULES ─────────────────────────────────────────────────────────
+# ─── RED FLAG RULES ──────────────────────────────────────────────────────────
 RED_FLAG_RULES = {
     'blood in vomit':        ('EMERGENCY', 'Possible internal bleeding. Go to the nearest hospital immediately.'),
     'coughing up blood':     ('EMERGENCY', 'Possible tuberculosis or lung condition. Seek emergency care now.'),
@@ -62,18 +63,11 @@ def check_red_flags(text: str):
         if keyword in text_lower:
             return level, message
     return None, None
-# ─── GEMINI SYMPTOM EXTRACTION ───────────────────────────────────────────────
-async def extract_symptoms_with_gemini(user_text: str) -> List[str]:
-    """
-    Uses Gemini to convert natural language symptom descriptions
-    into structured symptom codes matching our trained model.
-    """
-    if not user_text:
-        return []
 
+# ─── SHARED SYMPTOM EXTRACTION PROMPT ────────────────────────────────────────
+def build_extraction_prompt(user_text: str) -> str:
     symptom_list_str = ", ".join(SYMPTOMS)
-
-    prompt = f"""You are a medical symptom extraction assistant trained specifically for Nigerian patients.
+    return f"""You are a medical symptom extraction assistant trained specifically for Nigerian patients.
 You understand both standard English and Nigerian Pidgin English expressions for symptoms.
 
 A patient described their condition in their own words:
@@ -126,39 +120,8 @@ exactly as they appear in the list (with underscores).
 If no symptoms match, return "none".
 Do not explain. Do not add extra text. Only return the comma-separated codes."""
 
-    payload = {
-        "contents": [
-            {
-                "parts": [
-                    {"text": prompt}
-                ]
-            }
-        ]
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(GEMINI_URL, json=payload)
-            data = response.json()
-
-            if "candidates" in data and len(data["candidates"]) > 0:
-                candidate = data["candidates"][0]
-                if "content" in candidate and "parts" in candidate["content"]:
-                    raw_text = candidate["content"]["parts"][0]["text"].strip()
-
-                    if raw_text.lower() == "none":
-                        return []
-
-                    extracted = [s.strip() for s in raw_text.split(",")]
-                    valid_symptoms = [s for s in extracted if s in SYMPTOMS]
-                    return valid_symptoms
-
-            return []
-    except Exception as e:
-        return []
-# ─── GEMINI ADVISORY ─────────────────────────────────────────────────────────
-async def get_gemini_advisory(disease: str, symptoms: List[str], confidence: float) -> str:
-    prompt = f"""You are FUOYE Medic, a friendly and professional health advisory assistant for Nigerian patients.
+def build_advisory_prompt(disease: str, symptoms: List[str], confidence: float) -> str:
+    return f"""You are FUOYE Medic, a friendly and professional health advisory assistant for Nigerian patients.
 
 A patient has presented with the following symptoms: {', '.join(symptoms)}.
 Based on ML analysis, the predicted condition is: {disease} (confidence: {confidence}%).
@@ -175,28 +138,112 @@ Do not provide specific drug dosages.
 Always recommend seeing a qualified doctor for proper diagnosis.
 End with an encouraging note."""
 
-    payload = {
-        "contents": [
-            {
-                "parts": [
-                    {"text": prompt}
-                ]
-            }
-        ]
-    }
+def parse_symptoms(raw_text: str) -> List[str]:
+    if raw_text.lower().strip() == "none":
+        return []
+    extracted = [s.strip() for s in raw_text.split(",")]
+    return [s for s in extracted if s in SYMPTOMS]
 
+# ─── GROQ FUNCTIONS ───────────────────────────────────────────────────────────
+async def extract_symptoms_with_groq(user_text: str) -> List[str]:
+    if not user_text:
+        return []
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(GEMINI_URL, json=payload)
+            response = await client.post(
+                GROQ_URL,
+                headers={
+                    "Authorization": f"Bearer {GROQ_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "llama3-8b-8192",
+                    "messages": [{"role": "user", "content": build_extraction_prompt(user_text)}],
+                    "temperature": 0.1,
+                    "max_tokens": 500
+                }
+            )
+            data = response.json()
+            if "choices" in data and len(data["choices"]) > 0:
+                raw_text = data["choices"][0]["message"]["content"].strip()
+                return parse_symptoms(raw_text)
+            return []
+    except Exception:
+        return []
+
+async def get_groq_advisory(disease: str, symptoms: List[str], confidence: float) -> str:
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                GROQ_URL,
+                headers={
+                    "Authorization": f"Bearer {GROQ_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "llama3-8b-8192",
+                    "messages": [{"role": "user", "content": build_advisory_prompt(disease, symptoms, confidence)}],
+                    "temperature": 0.7,
+                    "max_tokens": 500
+                }
+            )
+            data = response.json()
+            if "choices" in data and len(data["choices"]) > 0:
+                return data["choices"][0]["message"]["content"].strip()
+            return ""
+    except Exception:
+        return ""
+
+# ─── GEMINI FUNCTIONS (FALLBACK) ──────────────────────────────────────────────
+async def extract_symptoms_with_gemini(user_text: str) -> List[str]:
+    if not user_text:
+        return []
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                GEMINI_URL,
+                json={"contents": [{"parts": [{"text": build_extraction_prompt(user_text)}]}]}
+            )
+            data = response.json()
+            if "candidates" in data and len(data["candidates"]) > 0:
+                candidate = data["candidates"][0]
+                if "content" in candidate and "parts" in candidate["content"]:
+                    raw_text = candidate["content"]["parts"][0]["text"].strip()
+                    return parse_symptoms(raw_text)
+            return []
+    except Exception:
+        return []
+
+async def get_gemini_advisory(disease: str, symptoms: List[str], confidence: float) -> str:
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                GEMINI_URL,
+                json={"contents": [{"parts": [{"text": build_advisory_prompt(disease, symptoms, confidence)}]}]}
+            )
             data = response.json()
             if "candidates" in data and len(data["candidates"]) > 0:
                 candidate = data["candidates"][0]
                 if "content" in candidate and "parts" in candidate["content"]:
                     return candidate["content"]["parts"][0]["text"]
-            error_msg = data.get("error", {}).get("message", "Unknown error")
-            return f"Advisory unavailable ({error_msg}). You may have {disease}. Please consult a qualified doctor."
-    except Exception as e:
-        return f"Advisory service temporarily unavailable. Based on your symptoms, you may have {disease}. Please consult a qualified doctor."
+            return ""
+    except Exception:
+        return ""
+
+# ─── COMBINED FUNCTIONS (GROQ FIRST, GEMINI FALLBACK) ────────────────────────
+async def extract_symptoms(user_text: str) -> List[str]:
+    symptoms = await extract_symptoms_with_groq(user_text)
+    if not symptoms:
+        symptoms = await extract_symptoms_with_gemini(user_text)
+    return symptoms
+
+async def get_advisory(disease: str, symptoms: List[str], confidence: float) -> str:
+    advisory = await get_groq_advisory(disease, symptoms, confidence)
+    if not advisory:
+        advisory = await get_gemini_advisory(disease, symptoms, confidence)
+    if not advisory:
+        advisory = f"Based on your symptoms, you may have {disease}. Please consult a qualified doctor for proper diagnosis and treatment."
+    return advisory
 
 # ─── REQUEST / RESPONSE MODELS ───────────────────────────────────────────────
 class SymptomRequest(BaseModel):
@@ -213,29 +260,23 @@ class PredictionResponse(BaseModel):
     all_predictions: Optional[dict] = None
 
 # ─── ENDPOINTS ───────────────────────────────────────────────────────────────
-
 @app.get("/")
 def root():
     return {
         "message": "FUOYE Medic - Nigerian Health Advisory API is running",
-        "version": "2.0.0",
+        "version": "3.0.0",
         "diseases": len(DISEASES),
-        "symptoms": len(SYMPTOMS)
+        "symptoms": len(SYMPTOMS),
+        "llm": "Groq (Llama3) primary + Gemini fallback"
     }
 
 @app.get("/symptoms")
 def get_symptoms():
-    return {
-        "total": len(SYMPTOMS),
-        "symptoms": SYMPTOMS
-    }
+    return {"total": len(SYMPTOMS), "symptoms": SYMPTOMS}
 
 @app.get("/diseases")
 def get_diseases():
-    return {
-        "total": len(DISEASES),
-        "diseases": DISEASES
-    }
+    return {"total": len(DISEASES), "diseases": DISEASES}
 
 @app.post("/predict", response_model=PredictionResponse)
 async def predict(request: SymptomRequest):
@@ -250,24 +291,23 @@ async def predict(request: SymptomRequest):
                 advisory="Please seek immediate medical attention. Do not delay."
             )
 
-    # Step 2 — Extract symptoms from natural language using Gemini
+    # Step 2 — Extract symptoms (Groq first, Gemini fallback)
     extracted_symptoms = []
     if request.user_text:
-        extracted_symptoms = await extract_symptoms_with_gemini(request.user_text)
+        extracted_symptoms = await extract_symptoms(request.user_text)
 
-    # Combine manually selected chips + Gemini-extracted symptoms (no duplicates)
+    # Step 3 — Combine with manually selected symptoms
     all_symptoms = list(set(request.symptoms + extracted_symptoms))
 
-    # Step 3 — Build symptom vector
+    # Step 4 — Build symptom vector
     symptom_vector = np.zeros(len(SYMPTOMS))
-
     for symptom in all_symptoms:
         symptom_clean = symptom.lower().strip().replace(' ', '_')
         if symptom_clean in SYMPTOMS:
             idx = SYMPTOMS.index(symptom_clean)
             symptom_vector[idx] = 1
 
-    # Step 4 — ML Prediction
+    # Step 5 — ML Prediction
     prediction = model.predict([symptom_vector])[0]
     probabilities = model.predict_proba([symptom_vector])[0]
     disease = le.inverse_transform([prediction])[0]
@@ -279,8 +319,8 @@ async def predict(request: SymptomRequest):
         if p > 0.01
     }
 
-    # Step 5 — Get Gemini Advisory
-    advisory = await get_gemini_advisory(disease, all_symptoms, confidence)
+    # Step 6 — Get Advisory (Groq first, Gemini fallback)
+    advisory = await get_advisory(disease, all_symptoms, confidence)
 
     if confidence < 60:
         return PredictionResponse(
@@ -302,18 +342,39 @@ async def predict(request: SymptomRequest):
         advisory=advisory,
         all_predictions=all_predictions
     )
-    
+
+@app.get("/test-groq")
+async def test_groq():
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                GROQ_URL,
+                headers={
+                    "Authorization": f"Bearer {GROQ_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "llama3-8b-8192",
+                    "messages": [{"role": "user", "content": "Say hello in one sentence"}],
+                    "max_tokens": 50
+                }
+            )
+            return response.json()
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/test-gemini")
 async def test_gemini():
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(GEMINI_URL, json={
-                "contents": [{"parts": [{"text": "Say hello in one sentence"}]}]
-            })
+            response = await client.post(
+                GEMINI_URL,
+                json={"contents": [{"parts": [{"text": "Say hello in one sentence"}]}]}
+            )
             return response.json()
     except Exception as e:
         return {"error": str(e)}
-    
+
 @app.get("/health")
 def health_check():
     return {"status": "healthy"}
