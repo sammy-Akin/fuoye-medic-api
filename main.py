@@ -73,7 +73,8 @@ async def extract_symptoms_with_gemini(user_text: str) -> List[str]:
 
     symptom_list_str = ", ".join(SYMPTOMS)
 
-    prompt = f"""You are a medical symptom extraction assistant.
+    prompt = f"""You are a medical symptom extraction assistant trained specifically for Nigerian patients.
+You understand both standard English and Nigerian Pidgin English expressions for symptoms.
 
 A patient described their condition in their own words:
 "{user_text}"
@@ -82,14 +83,46 @@ Here is the EXACT list of valid symptom codes you must choose from:
 {symptom_list_str}
 
 Task: Identify which symptoms from the list above match what the patient described.
-Consider synonyms, descriptive language, and context. For example:
-- "biting stomach pain" or "tummy pain" → stomach_pain or abdominal_pain
-- "can't breathe well" → breathlessness
-- "throwing up" → vomiting
-- "running stomach" → diarrhoea
+Think carefully about the medical meaning behind everyday Nigerian descriptions.
 
-Return ONLY a comma-separated list of matching symptom codes from the list above, 
-exactly as they appear in the list (with underscores). 
+Nigerian Pidgin and local expression mappings to guide you:
+- "biting stomach" / "stomach dey bite me" / "belle dey pain me" → burning_stomach_pain, epigastric_pain
+- "stomach pain at night" / "pain wake me up for night" → stomach_pain_at_night, pain_worsens_at_night
+- "hot and cold" / "I dey feel cold then hot" / "body dey do me up and down" → fever, chills, sweating
+- "I dey shake" / "my body dey shake" / "shaking anyhow" → shivering, chills
+- "body dey hot" / "I get fever" / "feverish" / "temperature dey high" → fever, prolonged_fever
+- "I no fit carry myself" / "I dey weak" / "no strength" / "I dey tire anyhow" → fatigue, weakness, body_weakness
+- "my head dey bang" / "head dey pain me" / "headache dey do me" → headache, severe_headache
+- "I dey vomit" / "throwing up" / "I dey purge from mouth" → vomiting, nausea
+- "running stomach" / "stooling" / "I dey purge" / "my yansh dey run" → diarrhoea
+- "I no fit chop" / "I no wan eat" / "food no sweet me" → loss_of_appetite
+- "my eye don yellow" / "yellow eyes" / "my skin don yellow" → jaundice, yellowing_of_eyes
+- "my piss don change colour" / "dark urine" / "my piss yellow well well" → dark_urine
+- "I dey urinate too much" / "I dey piss anyhow" → frequent_urination
+- "I dey thirst well well" / "I dey drink water anyhow" → excessive_thirst
+- "I don lose weight" / "I don slim down" / "my cloth don big for me" → unexplained_weight_loss, weight_loss
+- "my bone dey pain me" / "joint dey pain me" / "body ache anyhow" → severe_bone_pain, joint_pain, muscle_pain
+- "chest dey pain me" / "my chest tight" → chest_pain, shortness_of_breath
+- "I dey cough blood" / "blood dey come out when I cough" → coughing_blood, blood_in_sputum
+- "I dey sweat for night" / "night sweating" → night_sweats, sweating
+- "I dey cough anyhow" / "cough no gree stop" → persistent_cough, cough, dry_cough
+- "I dey see double" / "my eye dey blur" → blurred_vision
+- "my belle don big" / "stomach don swell" → bloating
+- "I dey belch anyhow" / "gas dey release" → belching, indigestion
+- "my skin dey itch" / "body dey scratch me" → itchy_skin
+- "wound no dey heal" / "cut no dey close" → slow_healing_wounds
+- "I dey urinate with pain" / "my piss dey pain me" → blood_in_urine
+- "my hand and leg dey numb" / "I no dey feel my leg" → numbness_in_feet, tingling_in_hands_feet
+- "I dey sweat well well" / "sweat dey pour me" → sweating, night_sweats
+- "my throat dey pain me" / "sore throat dey do me" → sore_throat
+- "I dey breathe anyhow" / "breathing hard" / "breath short" → difficulty_breathing, shortness_of_breath, rapid_breathing
+- "my heart dey beat fast" / "heart dey do gbim gbim" → rapid_heartbeat, palpitations
+- "I don pale" / "I don fade" → pale_skin, anaemia
+- "I no fit sleep" / "sleep no come" → difficulty_sleeping
+- "my nose dey bleed" / "blood dey comot from nose" → nosebleed
+
+Return ONLY a comma-separated list of matching symptom codes from the list above,
+exactly as they appear in the list (with underscores).
 If no symptoms match, return "none".
 Do not explain. Do not add extra text. Only return the comma-separated codes."""
 
