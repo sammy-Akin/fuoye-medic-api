@@ -57,6 +57,7 @@ RED_FLAG_RULES = {
     'not breathing':         ('EMERGENCY', 'Call emergency services immediately.'),
 }
 
+
 def check_red_flags(text: str):
     text_lower = text.lower()
     for keyword, (level, message) in RED_FLAG_RULES.items():
@@ -65,6 +66,8 @@ def check_red_flags(text: str):
     return None, None
 
 # ─── SHARED SYMPTOM EXTRACTION PROMPT ────────────────────────────────────────
+
+
 def build_extraction_prompt(user_text: str) -> str:
     symptom_list_str = ", ".join(SYMPTOMS)
     return f"""You are a medical symptom extraction assistant trained specifically for Nigerian patients.
@@ -120,6 +123,7 @@ exactly as they appear in the list (with underscores).
 If no symptoms match, return "none".
 Do not explain. Do not add extra text. Only return the comma-separated codes."""
 
+
 def build_advisory_prompt(disease: str, symptoms: List[str], confidence: float) -> str:
     return f"""You are FUOYE Medic, a friendly and professional health advisory assistant for Nigerian patients.
 
@@ -138,6 +142,7 @@ Do not provide specific drug dosages.
 Always recommend seeing a qualified doctor for proper diagnosis.
 End with an encouraging note."""
 
+
 def parse_symptoms(raw_text: str) -> List[str]:
     if raw_text.lower().strip() == "none":
         return []
@@ -145,6 +150,8 @@ def parse_symptoms(raw_text: str) -> List[str]:
     return [s for s in extracted if s in SYMPTOMS]
 
 # ─── GROQ FUNCTIONS ───────────────────────────────────────────────────────────
+
+
 async def extract_symptoms_with_groq(user_text: str) -> List[str]:
     if not user_text:
         return []
@@ -171,6 +178,7 @@ async def extract_symptoms_with_groq(user_text: str) -> List[str]:
     except Exception:
         return []
 
+
 async def get_groq_advisory(disease: str, symptoms: List[str], confidence: float) -> str:
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -195,6 +203,8 @@ async def get_groq_advisory(disease: str, symptoms: List[str], confidence: float
         return ""
 
 # ─── GEMINI FUNCTIONS (FALLBACK) ──────────────────────────────────────────────
+
+
 async def extract_symptoms_with_gemini(user_text: str) -> List[str]:
     if not user_text:
         return []
@@ -202,7 +212,8 @@ async def extract_symptoms_with_gemini(user_text: str) -> List[str]:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
                 GEMINI_URL,
-                json={"contents": [{"parts": [{"text": build_extraction_prompt(user_text)}]}]}
+                json={"contents": [
+                    {"parts": [{"text": build_extraction_prompt(user_text)}]}]}
             )
             data = response.json()
             if "candidates" in data and len(data["candidates"]) > 0:
@@ -214,12 +225,14 @@ async def extract_symptoms_with_gemini(user_text: str) -> List[str]:
     except Exception:
         return []
 
+
 async def get_gemini_advisory(disease: str, symptoms: List[str], confidence: float) -> str:
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
                 GEMINI_URL,
-                json={"contents": [{"parts": [{"text": build_advisory_prompt(disease, symptoms, confidence)}]}]}
+                json={"contents": [
+                    {"parts": [{"text": build_advisory_prompt(disease, symptoms, confidence)}]}]}
             )
             data = response.json()
             if "candidates" in data and len(data["candidates"]) > 0:
@@ -231,11 +244,14 @@ async def get_gemini_advisory(disease: str, symptoms: List[str], confidence: flo
         return ""
 
 # ─── COMBINED FUNCTIONS (GROQ FIRST, GEMINI FALLBACK) ────────────────────────
+
+
 async def extract_symptoms(user_text: str) -> List[str]:
     symptoms = await extract_symptoms_with_groq(user_text)
     if not symptoms:
         symptoms = await extract_symptoms_with_gemini(user_text)
     return symptoms
+
 
 async def get_advisory(disease: str, symptoms: List[str], confidence: float) -> str:
     advisory = await get_groq_advisory(disease, symptoms, confidence)
@@ -246,9 +262,12 @@ async def get_advisory(disease: str, symptoms: List[str], confidence: float) -> 
     return advisory
 
 # ─── REQUEST / RESPONSE MODELS ───────────────────────────────────────────────
+
+
 class SymptomRequest(BaseModel):
     symptoms: List[str]
     user_text: Optional[str] = ""
+
 
 class PredictionResponse(BaseModel):
     source: str
@@ -260,6 +279,8 @@ class PredictionResponse(BaseModel):
     all_predictions: Optional[dict] = None
 
 # ─── ENDPOINTS ───────────────────────────────────────────────────────────────
+
+
 @app.get("/")
 def root():
     return {
@@ -270,13 +291,16 @@ def root():
         "llm": "Groq (Llama3) primary + Gemini fallback"
     }
 
+
 @app.get("/symptoms")
 def get_symptoms():
     return {"total": len(SYMPTOMS), "symptoms": SYMPTOMS}
 
+
 @app.get("/diseases")
 def get_diseases():
     return {"total": len(DISEASES), "diseases": DISEASES}
+
 
 @app.post("/predict", response_model=PredictionResponse)
 async def predict(request: SymptomRequest):
@@ -344,11 +368,14 @@ async def predict(request: SymptomRequest):
     )
 
 # ─── CONVERSATION STATE MODEL ─────────────────────────────────────────────────
+
+
 class ConversationRequest(BaseModel):
     user_text: str
     conversation_history: Optional[List[dict]] = []
     accumulated_symptoms: Optional[List[str]] = []
     question_count: Optional[int] = 0
+
 
 class ConversationResponse(BaseModel):
     type: str  # "question" or "prediction"
@@ -375,6 +402,8 @@ def _fallback_question(symptoms: List[str], question_count: int) -> str:
     return questions[question_count % len(questions)]
 
 # ─── FOLLOW-UP QUESTION GENERATOR ────────────────────────────────────────────
+
+
 async def generate_follow_up_question(
     symptoms_so_far: List[str],
     question_count: int,
@@ -412,7 +441,7 @@ Return ONLY the question. No preamble. No explanation. Just the question."""
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "openai/gpt-oss-20b",
+                    "model": "llama-3.1-8b-instant",
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.7,
                     "max_tokens": 100
@@ -430,6 +459,8 @@ Return ONLY the question. No preamble. No explanation. Just the question."""
         return "Can you tell me more about your symptoms? Do you have fever, vomiting, or any other discomfort?"
 
 # ─── CONVERSATIONAL ENDPOINT ──────────────────────────────────────────────────
+
+
 @app.post("/chat", response_model=ConversationResponse)
 async def chat(request: ConversationRequest):
     # Step 1 — Red Flag Check
@@ -510,6 +541,7 @@ async def chat(request: ConversationRequest):
         question_count=request.question_count
     )
 
+
 @app.get("/test-groq")
 async def test_groq():
     try:
@@ -530,17 +562,20 @@ async def test_groq():
     except Exception as e:
         return {"error": str(e)}
 
+
 @app.get("/test-gemini")
 async def test_gemini():
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
                 GEMINI_URL,
-                json={"contents": [{"parts": [{"text": "Say hello in one sentence"}]}]}
+                json={"contents": [
+                    {"parts": [{"text": "Say hello in one sentence"}]}]}
             )
             return response.json()
     except Exception as e:
         return {"error": str(e)}
+
 
 @app.get("/health")
 def health_check():
