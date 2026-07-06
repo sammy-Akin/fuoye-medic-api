@@ -1,20 +1,15 @@
 {
   "model": "Random Forest",
   "accuracy": 100.0,
-  "precision": 100.0,
-  "recall": 100.0,
-  "f1_score": 100.0,
   "diseases": [
     "Diabetes Mellitus",
     "Hepatitis B",
-    "Hypertension",
     "Malaria",
     "Peptic Ulcer",
     "Pneumonia",
     "Sickle Cell Crisis",
     "Tuberculosis",
-    "Typhoid Fever",
-    "Typhoid_Malaria Coinfection"
+    "Typhoid Fever"
   ],
   "symptoms": [
     "abdominal_pain",
@@ -132,30 +127,14 @@
     "wheezing",
     "yellowing_of_eyes"
   ],
-  "num_diseases": 10,
+  "num_diseases": 8,
   "num_symptoms": 114,
-  "dataset_size": 19589,
-  "all_model_results": {
-    "Logistic Regression": {
-      "accuracy": 99.97,
-      "precision": 99.97,
-      "recall": 99.97,
-      "f1": 99.97,
-      "time": 0.49
-    },
-    "Random Forest": {
-      "accuracy": 100.0,
-      "precision": 100.0,
-      "recall": 100.0,
-      "f1": 100.0,
-      "time": 3.14
-    },
-    "XGBoost": {
-      "accuracy": 99.97,
-      "precision": 99.97,
-      "recall": 99.97,
-      "f1": 99.97,
-      "time": 6.96
-    }
-  }
+  "dataset_size": 15709,
+  "train_size": 12567,
+  "test_size": 3142,
+  "removed_diseases": [
+    "Hypertension",
+    "Typhoid_Malaria Coinfection"
+  ],
+  "reason": "Hypertension removed due to symptom overlap with headache. Coinfection removed as non-standard WHO classification."
 }
