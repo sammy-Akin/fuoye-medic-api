@@ -363,6 +363,17 @@ class ConversationResponse(BaseModel):
     accumulated_symptoms: Optional[List[str]] = []
     question_count: Optional[int] = 0
 
+
+def _fallback_question(symptoms: List[str], question_count: int) -> str:
+    questions = [
+        "Do you also have fever or chills along with these symptoms?",
+        "Have you been vomiting or feeling nauseous recently?",
+        "Are you feeling weak or losing your appetite?",
+        "Is there any yellowing of your eyes or skin?",
+        "How long have you been experiencing these symptoms?"
+    ]
+    return questions[question_count % len(questions)]
+
 # ─── FOLLOW-UP QUESTION GENERATOR ────────────────────────────────────────────
 async def generate_follow_up_question(
     symptoms_so_far: List[str],
@@ -409,8 +420,12 @@ Return ONLY the question. No preamble. No explanation. Just the question."""
             )
             data = response.json()
             if "choices" in data and len(data["choices"]) > 0:
-                return data["choices"][0]["message"]["content"].strip()
-            return "Can you tell me more about your symptoms? Do you have fever, vomiting, or any other discomfort?"
+                content = data["choices"][0]["message"]["content"].strip()
+                if content:
+                    return content
+                # Reasoning model returned empty — use fallback
+                return _fallback_question(symptoms_so_far, question_count)
+            return _fallback_question(symptoms_so_far, question_count)
     except Exception:
         return "Can you tell me more about your symptoms? Do you have fever, vomiting, or any other discomfort?"
 
