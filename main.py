@@ -343,6 +343,158 @@ async def predict(request: SymptomRequest):
         all_predictions=all_predictions
     )
 
+# ─── CONVERSATION STATE MODEL ─────────────────────────────────────────────────
+class ConversationRequest(BaseModel):
+    user_text: str
+    conversation_history: Optional[List[dict]] = []
+    accumulated_symptoms: Optional[List[str]] = []
+    question_count: Optional[int] = 0
+
+class ConversationResponse(BaseModel):
+    type: str  # "question" or "prediction"
+    question: Optional[str] = None
+    source: Optional[str] = None
+    disease: Optional[str] = None
+    confidence: Optional[float] = None
+    level: str
+    message: str
+    advisory: Optional[str] = None
+    all_predictions: Optional[dict] = None
+    accumulated_symptoms: Optional[List[str]] = []
+    question_count: Optional[int] = 0
+
+# ─── FOLLOW-UP QUESTION GENERATOR ────────────────────────────────────────────
+async def generate_follow_up_question(
+    symptoms_so_far: List[str],
+    question_count: int,
+    top_diseases: dict
+) -> str:
+    top_2 = list(top_diseases.items())[:2]
+    disease_context = " or ".join([d for d, _ in top_2])
+
+    prompt = f"""You are FUOYE Medic, a friendly Nigerian health assistant having a conversation with a patient.
+
+So far the patient has described these symptoms: {', '.join(symptoms_so_far) if symptoms_so_far else 'only vague symptoms'}.
+
+The top possible conditions based on current symptoms are: {disease_context}.
+
+This is follow-up question number {question_count + 1} (maximum 3 questions allowed).
+
+Generate ONE short, friendly follow-up question in simple English that will help narrow down the diagnosis.
+Focus on symptoms that would distinguish between the top conditions.
+
+Examples of good follow-up questions:
+- "Do you also have fever or chills along with the headache?"
+- "Has your friend been vomiting or feeling nauseous?"
+- "How long have these symptoms been going on?"
+- "Is there any yellowing of the eyes or skin?"
+- "Does the stomach pain get worse at night or after eating?"
+
+Return ONLY the question. No preamble. No explanation. Just the question."""
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                GROQ_URL,
+                headers={
+                    "Authorization": f"Bearer {GROQ_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "openai/gpt-oss-20b",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.7,
+                    "max_tokens": 100
+                }
+            )
+            data = response.json()
+            if "choices" in data and len(data["choices"]) > 0:
+                return data["choices"][0]["message"]["content"].strip()
+            return "Can you tell me more about your symptoms? Do you have fever, vomiting, or any other discomfort?"
+    except Exception:
+        return "Can you tell me more about your symptoms? Do you have fever, vomiting, or any other discomfort?"
+
+# ─── CONVERSATIONAL ENDPOINT ──────────────────────────────────────────────────
+@app.post("/chat", response_model=ConversationResponse)
+async def chat(request: ConversationRequest):
+    # Step 1 — Red Flag Check
+    level, message = check_red_flags(request.user_text)
+    if level:
+        return ConversationResponse(
+            type="prediction",
+            source="RED_FLAG_OVERRIDE",
+            level=level,
+            message=message,
+            advisory="Please seek immediate medical attention. Do not delay.",
+            accumulated_symptoms=request.accumulated_symptoms,
+            question_count=request.question_count
+        )
+
+    # Step 2 — Extract symptoms from current message
+    new_symptoms = await extract_symptoms(request.user_text)
+
+    # Step 3 — Combine with accumulated symptoms
+    all_symptoms = list(set(request.accumulated_symptoms + new_symptoms))
+
+    # Step 4 — Build symptom vector and predict
+    symptom_vector = np.zeros(len(SYMPTOMS))
+    for symptom in all_symptoms:
+        symptom_clean = symptom.lower().strip().replace(' ', '_')
+        if symptom_clean in SYMPTOMS:
+            idx = SYMPTOMS.index(symptom_clean)
+            symptom_vector[idx] = 1
+
+    prediction = model.predict([symptom_vector])[0]
+    probabilities = model.predict_proba([symptom_vector])[0]
+    disease = le.inverse_transform([prediction])[0]
+    confidence = round(float(max(probabilities)) * 100, 2)
+
+    all_predictions = {
+        le.inverse_transform([i])[0]: round(float(p) * 100, 2)
+        for i, p in enumerate(probabilities)
+        if p > 0.01
+    }
+
+    # Step 5 — Decide: ask follow-up or give prediction
+    max_questions = 3
+    should_ask = (
+        confidence < 70 and
+        request.question_count < max_questions and
+        len(all_symptoms) < 4
+    )
+
+    if should_ask:
+        # Generate smart follow-up question
+        question = await generate_follow_up_question(
+            all_symptoms,
+            request.question_count,
+            all_predictions
+        )
+        return ConversationResponse(
+            type="question",
+            question=question,
+            level="INFO",
+            message="I need a bit more information to help you better.",
+            accumulated_symptoms=all_symptoms,
+            question_count=request.question_count + 1
+        )
+
+    # Step 6 — Enough info, give final prediction
+    advisory = await get_advisory(disease, all_symptoms, confidence)
+
+    return ConversationResponse(
+        type="prediction",
+        source="ML_CLASSIFIER",
+        disease=disease,
+        confidence=confidence,
+        level="INFO",
+        message=f"Based on your symptoms, this may be {disease}. Please consult a qualified doctor for proper diagnosis.",
+        advisory=advisory,
+        all_predictions=all_predictions,
+        accumulated_symptoms=all_symptoms,
+        question_count=request.question_count
+    )
+
 @app.get("/test-groq")
 async def test_groq():
     try:
