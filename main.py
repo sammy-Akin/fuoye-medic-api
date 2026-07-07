@@ -412,25 +412,38 @@ async def generate_follow_up_question(
     top_2 = list(top_diseases.items())[:2]
     disease_context = " or ".join([d for d, _ in top_2])
 
-    prompt = f"""You are FUOYE Medic, a friendly Nigerian health assistant having a conversation with a patient.
+    prompt = f"""You are FUOYE Medic, a friendly Nigerian doctor having a conversation with a patient.
 
-So far the patient has described these symptoms: {', '.join(symptoms_so_far) if symptoms_so_far else 'only vague symptoms'}.
+The patient has described these symptoms so far: {', '.join(symptoms_so_far) if symptoms_so_far else 'vague discomfort'}.
 
-The top possible conditions based on current symptoms are: {disease_context}.
+This is follow-up question number {question_count + 1} of maximum 3.
 
-This is follow-up question number {question_count + 1} (maximum 3 questions allowed).
+Your job is to ask ONE smart, clinically relevant follow-up question.
 
-Generate ONE short, friendly follow-up question in simple English that will help narrow down the diagnosis.
-Focus on symptoms that would distinguish between the top conditions.
+Clinical follow-up rules:
+- headache → ask about fever, chills, neck stiffness, or sensitivity to light
+- fever / hot body / body dey hot → ask about chills, sweating, duration, or vomiting
+- stomach pain / belle pain / epigastric pain → ask about timing (night/after eating), vomiting, or stool colour
+- cough → ask about blood in sputum, night sweats, chest pain, or duration
+- weakness / fatigue / I dey weak → ask about weight loss, appetite, or frequent urination
+- yellow eyes / jaundice → ask about dark urine, pale stool, or abdominal pain
+- bone pain / joint pain → ask about swelling, skin colour, or previous episodes
+- frequent urination / excessive thirst → ask about weight loss, blurred vision, or fatigue
+- chest pain → ask about breathing difficulty, sweating, or arm/jaw pain
+- vomiting → ask about blood in vomit, frequency, or abdominal pain
+- diarrhea / running stomach → ask about blood in stool, frequency, or dehydration signs
+- weight loss → ask about appetite, cough, night sweats, or fatigue
+- skin rash / itching → ask about fever, joint pain, or recent travel
+- shortness of breath → ask about cough, chest pain, or leg swelling
 
-Examples of good follow-up questions:
-- "Do you also have fever or chills along with the headache?"
-- "Has your friend been vomiting or feeling nauseous?"
-- "How long have these symptoms been going on?"
-- "Is there any yellowing of the eyes or skin?"
-- "Does the stomach pain get worse at night or after eating?"
+General rules:
+- Never ask about unrelated body systems
+- Keep question short and friendly in simple English
+- Understand Nigerian Pidgin expressions
+- Do not mention disease names
+- If symptoms unclear, ask about fever first as it's most common Nigerian complaint
 
-Return ONLY the question. No preamble. No explanation. Just the question."""
+Return ONLY the question. Nothing else."""
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -441,7 +454,7 @@ Return ONLY the question. No preamble. No explanation. Just the question."""
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "llama-3.1-8b-instant",
+                    "model": "llama3-70b-8192",
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.7,
                     "max_tokens": 100
