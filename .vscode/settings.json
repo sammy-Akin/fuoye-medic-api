@@ -4,6 +4,7 @@
         "GROQ",
         "httpx",
         "pycache",
+        "qwen",
         "venv"
     ]
 }

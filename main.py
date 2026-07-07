@@ -164,7 +164,7 @@ async def extract_symptoms_with_groq(user_text: str) -> List[str]:
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "llama3-70b-8192",
+                    "model": "qwen/qwen3.6-27b",
                     "messages": [{"role": "user", "content": build_extraction_prompt(user_text)}],
                     "temperature": 0.1,
                     "max_tokens": 500
@@ -189,7 +189,7 @@ async def get_groq_advisory(disease: str, symptoms: List[str], confidence: float
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "llama3-70b-8192",
+                    "model": "qwen/qwen3.6-27b",
                     "messages": [{"role": "user", "content": build_advisory_prompt(disease, symptoms, confidence)}],
                     "temperature": 0.7,
                     "max_tokens": 500
@@ -454,7 +454,7 @@ Return ONLY the question. Nothing else."""
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "llama3-70b-8192",
+                    "model": "qwen/qwen3.6-27b",
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.7,
                     "max_tokens": 100
@@ -566,7 +566,7 @@ async def test_groq():
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "llama3-70b-8192",
+                    "model": "qwen/qwen3.6-27b",
                     "messages": [{"role": "user", "content": "Say hello in one sentence"}],
                     "max_tokens": 50
                 }
@@ -601,7 +601,7 @@ async def test_extraction():
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "llama3-70b-8192",
+                    "model": "qwen/qwen3.6-27b",
                     "messages": [{"role": "user", "content": build_extraction_prompt("I have headache and fever")}],
                     "temperature": 0.1,
                     "max_tokens": 500
