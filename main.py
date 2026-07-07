@@ -143,8 +143,15 @@ Always recommend seeing a qualified doctor for proper diagnosis.
 End with an encouraging note."""
 
 
+def strip_think_tags(text: str) -> str:
+    import re
+    return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
+
 def parse_symptoms(raw_text: str) -> List[str]:
-    if raw_text.lower().strip() == "none":
+    # Strip thinking tags from reasoning models
+    import re
+    raw_text = re.sub(r'<think>.*?</think>', '', raw_text, flags=re.DOTALL).strip()
+    if not raw_text or raw_text.lower().strip() == "none":
         return []
     extracted = [s.strip() for s in raw_text.split(",")]
     return [s for s in extracted if s in SYMPTOMS]
@@ -167,7 +174,7 @@ async def extract_symptoms_with_groq(user_text: str) -> List[str]:
                     "model": "qwen/qwen3.6-27b",
                     "messages": [{"role": "user", "content": build_extraction_prompt(user_text)}],
                     "temperature": 0.1,
-                    "max_tokens": 500
+                    "max_tokens": 2000
                 }
             )
             data = response.json()
@@ -192,12 +199,12 @@ async def get_groq_advisory(disease: str, symptoms: List[str], confidence: float
                     "model": "qwen/qwen3.6-27b",
                     "messages": [{"role": "user", "content": build_advisory_prompt(disease, symptoms, confidence)}],
                     "temperature": 0.7,
-                    "max_tokens": 500
+                    "max_tokens": 2000
                 }
             )
             data = response.json()
             if "choices" in data and len(data["choices"]) > 0:
-                return data["choices"][0]["message"]["content"].strip()
+                return strip_think_tags(data["choices"][0]["message"]["content"].strip())
             return ""
     except Exception:
         return ""
@@ -457,12 +464,12 @@ Return ONLY the question. Nothing else."""
                     "model": "qwen/qwen3.6-27b",
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.7,
-                    "max_tokens": 100
+                    "max_tokens": 1000
                 }
             )
             data = response.json()
             if "choices" in data and len(data["choices"]) > 0:
-                content = data["choices"][0]["message"]["content"].strip()
+                content = strip_think_tags(data["choices"][0]["message"]["content"].strip())
                 if content:
                     return content
                 # Reasoning model returned empty — use fallback
@@ -604,7 +611,7 @@ async def test_extraction():
                     "model": "qwen/qwen3.6-27b",
                     "messages": [{"role": "user", "content": build_extraction_prompt("I have headache and fever")}],
                     "temperature": 0.1,
-                    "max_tokens": 500
+                    "max_tokens": 2000
                 }
             )
             data = response.json()
