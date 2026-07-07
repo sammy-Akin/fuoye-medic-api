@@ -590,6 +590,29 @@ async def test_gemini():
         return {"error": str(e)}
 
 
+@app.get("/test-extraction")
+async def test_extraction():
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                GROQ_URL,
+                headers={
+                    "Authorization": f"Bearer {GROQ_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "llama3-70b-8192",
+                    "messages": [{"role": "user", "content": build_extraction_prompt("I have headache and fever")}],
+                    "temperature": 0.1,
+                    "max_tokens": 500
+                }
+            )
+            data = response.json()
+            raw = data["choices"][0]["message"]["content"] if "choices" in data else "no choices"
+            return {"raw_response": raw, "full_data": data}
+    except Exception as e:
+        return {"error": str(e)}
+    
 @app.get("/health")
 def health_check():
     return {"status": "healthy"}
