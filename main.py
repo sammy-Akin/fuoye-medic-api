@@ -164,7 +164,7 @@ async def extract_symptoms_with_groq(user_text: str) -> List[str]:
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "openai/gpt-oss-20b",
+                    "model": "llama3-70b-8192",
                     "messages": [{"role": "user", "content": build_extraction_prompt(user_text)}],
                     "temperature": 0.1,
                     "max_tokens": 500
@@ -189,7 +189,7 @@ async def get_groq_advisory(disease: str, symptoms: List[str], confidence: float
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "openai/gpt-oss-20b",
+                    "model": "llama3-70b-8192",
                     "messages": [{"role": "user", "content": build_advisory_prompt(disease, symptoms, confidence)}],
                     "temperature": 0.7,
                     "max_tokens": 500
@@ -519,7 +519,7 @@ async def chat(request: ConversationRequest):
     should_ask = (
         confidence < 70 and
         request.question_count < max_questions and
-        len(all_symptoms) < 4
+        len(all_symptoms) < 5
     )
 
     if should_ask:
@@ -566,7 +566,7 @@ async def test_groq():
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "openai/gpt-oss-20b",
+                    "model": "llama3-70b-8192",
                     "messages": [{"role": "user", "content": "Say hello in one sentence"}],
                     "max_tokens": 50
                 }
