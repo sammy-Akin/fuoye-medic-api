@@ -461,10 +461,10 @@ Return ONLY the question. Nothing else."""
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "qwen/qwen3.6-27b",
+                    "model": "meta-llama/llama-4-scout-17b-16e-instruct",
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.7,
-                    "max_tokens": 1000
+                    "max_tokens": 150
                 }
             )
             data = response.json()
