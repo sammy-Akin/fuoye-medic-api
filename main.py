@@ -469,11 +469,14 @@ Return ONLY the question. Nothing else."""
             )
             data = response.json()
             if "choices" in data and len(data["choices"]) > 0:
-                content = strip_think_tags(data["choices"][0]["message"]["content"].strip())
+                raw = data["choices"][0]["message"]["content"].strip()
+                content = strip_think_tags(raw)
+                # Extra safety — take only last line if multiple lines
                 if content:
-                    return content
-                # Reasoning model returned empty — use fallback
+                    lines = [l.strip() for l in content.split('\n') if l.strip()]
+                    return lines[-1] if lines else _fallback_question(symptoms_so_far, question_count)
                 return _fallback_question(symptoms_so_far, question_count)
+            
             return _fallback_question(symptoms_so_far, question_count)
     except Exception:
         return "Can you tell me more about your symptoms? Do you have fever, vomiting, or any other discomfort?"
