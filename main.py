@@ -172,9 +172,9 @@ async def extract_symptoms_with_groq(user_text: str) -> List[str]:
                 },
                 json={
                     "model": "qwen/qwen3.6-27b",
-                    "messages": [{"role": "user", "content": build_extraction_prompt(user_text)}],
+                    "messages": [{"role": "user", "content": build_extraction_prompt(user_text) + "\n/no_think"}],
                     "temperature": 0.1,
-                    "max_tokens": 2000
+                    "max_tokens": 500
                 }
             )
             data = response.json()
@@ -462,9 +462,9 @@ Return ONLY the question. Nothing else."""
                 },
                 json={
                     "model": "qwen/qwen3.6-27b",
-                    "messages": [{"role": "user", "content": prompt}],
+                    "messages": [{"role": "user", "content": prompt + "\n/no_think"}],
                     "temperature": 0.7,
-                    "max_tokens": 1000
+                    "max_tokens": 200
                 }
             )
             data = response.json()
