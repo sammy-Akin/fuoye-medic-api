@@ -172,9 +172,9 @@ async def extract_symptoms_with_groq(user_text: str) -> List[str]:
                 },
                 json={
                     "model": "qwen/qwen3.6-27b",
-                    "messages": [{"role": "user", "content": build_extraction_prompt(user_text) + "\n/no_think"}],
+                    "messages": [{"role": "user", "content": build_extraction_prompt(user_text)}],
                     "temperature": 0.1,
-                    "max_tokens": 500
+                    "max_tokens": 2000
                 }
             )
             data = response.json()
@@ -462,21 +462,18 @@ Return ONLY the question. Nothing else."""
                 },
                 json={
                     "model": "qwen/qwen3.6-27b",
-                    "messages": [{"role": "user", "content": prompt + "\n/no_think"}],
+                    "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.7,
-                    "max_tokens": 200
+                    "max_tokens": 1000
                 }
             )
             data = response.json()
             if "choices" in data and len(data["choices"]) > 0:
-                raw = data["choices"][0]["message"]["content"].strip()
-                content = strip_think_tags(raw)
-                # Extra safety — take only last line if multiple lines
+                content = strip_think_tags(data["choices"][0]["message"]["content"].strip())
                 if content:
-                    lines = [l.strip() for l in content.split('\n') if l.strip()]
-                    return lines[-1] if lines else _fallback_question(symptoms_so_far, question_count)
+                    return content
+                # Reasoning model returned empty — use fallback
                 return _fallback_question(symptoms_so_far, question_count)
-            
             return _fallback_question(symptoms_so_far, question_count)
     except Exception:
         return "Can you tell me more about your symptoms? Do you have fever, vomiting, or any other discomfort?"
