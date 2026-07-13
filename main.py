@@ -416,34 +416,28 @@ async def generate_follow_up_question(
     question_count: int,
     top_diseases: dict
 ) -> str:
-    top_2 = list(top_diseases.items())[:2]
-    disease_context = " or ".join([d for d, _ in top_2])
+    prompt = f"""You are FUOYE Medic, a friendly Nigerian doctor speaking with a patient.
 
-    prompt = f"""You are FUOYE Medic, a friendly Nigerian doctor having a conversation with a patient.
-
-The patient has described these symptoms so far: {', '.join(symptoms_so_far) if symptoms_so_far else 'vague discomfort'}.
+The patient has described these symptoms: {', '.join(symptoms_so_far) if symptoms_so_far else 'vague discomfort'}.
 
 This is follow-up question number {question_count + 1} of maximum 3.
 
-Your job is to ask ONE smart, clinically relevant follow-up question.
+Ask ONE short, clinically relevant follow-up question in standard English only.
 
-Clinical follow-up rules:
-- headache → ask about fever, chills, neck stiffness, or sensitivity to light
-- fever / hot body / body dey hot → ask about chills, sweating, duration, or vomiting
-- stomach pain / belle pain / epigastric pain → ask about timing (night/after eating), vomiting, or stool colour
-- cough → ask about blood in sputum, night sweats, chest pain, or duration
-- weakness / fatigue / I dey weak → ask about weight loss, appetite, or frequent urination
-- yellow eyes / jaundice → ask about dark urine, pale stool, or abdominal pain
-- bone pain / joint pain → ask about swelling, skin colour, or previous episodes
-- frequent urination / excessive thirst → ask about weight loss, blurred vision, or fatigue
-- chest pain → ask about breathing difficulty, sweating, or arm/jaw pain
-- vomiting → ask about blood in vomit, frequency, or abdominal pain
-- diarrhea / running stomach → ask about blood in stool, frequency, or dehydration signs
-- weight loss → ask about appetite, cough, night sweats, or fatigue
-- skin rash / itching → ask about fever, joint pain, or recent travel
-- shortness of breath → ask about cough, chest pain, or leg swelling
+Rules:
+- headache: ask about fever, chills, or neck stiffness
+- stomach pain: ask about timing (night or after eating), vomiting, or stool changes
+- cough: ask about blood in sputum, night sweats, or chest pain
+- fever: ask about chills, sweating, vomiting, or duration
+- weakness: ask about weight loss, appetite, or urination
+- yellow eyes: ask about dark urine or abdominal pain
+- bone pain: ask about swelling or previous episodes
+- chest pain: ask about breathing difficulty or sweating
+- vomiting: ask about blood in vomit or abdominal pain
+- weight loss: ask about appetite, cough, or night sweats
 
-v
+IMPORTANT: Respond in standard English only. No Pidgin.
+Return ONLY the question. Nothing else."""
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -465,11 +459,10 @@ v
                 content = strip_think_tags(data["choices"][0]["message"]["content"].strip())
                 if content:
                     return content
-                # Reasoning model returned empty — use fallback
                 return _fallback_question(symptoms_so_far, question_count)
             return _fallback_question(symptoms_so_far, question_count)
     except Exception:
-        return "Can you tell me more about your symptoms? Do you have fever, vomiting, or any other discomfort?"
+        return "Can you tell me more? Do you have fever, vomiting, or any other discomfort?"
 
 # ─── CONVERSATIONAL ENDPOINT ──────────────────────────────────────────────────
 
