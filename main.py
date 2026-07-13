@@ -259,6 +259,77 @@ async def extract_symptoms(user_text: str) -> List[str]:
         symptoms = await extract_symptoms_with_gemini(user_text)
     return symptoms
 
+async def get_llm_prediction(symptoms: List[str], all_predictions: dict) -> dict:
+    """
+    When ML confidence is low after 3 questions,
+    let the LLM make the final prediction based on symptoms and context.
+    """
+    top_predictions = sorted(all_predictions.items(), key=lambda x: x[1], reverse=True)[:3]
+    top_str = ", ".join([f"{d} ({p}%)" for d, p in top_predictions])
+
+    prompt = f"""You are FUOYE Medic, an experienced Nigerian doctor.
+
+A patient has described these symptoms during a conversation: {', '.join(symptoms) if symptoms else 'unclear symptoms'}.
+
+The ML model's top predictions are: {top_str}
+
+Based on the symptoms described and the ML suggestions, make your best clinical judgment.
+
+Respond in this exact JSON format:
+{{
+  "disease": "most likely disease name",
+  "confidence": 60,
+  "reasoning": "brief clinical reasoning in one sentence",
+  "advisory": "friendly 3-sentence health advisory for Nigerian patient including what to do next"
+}}
+
+Choose the disease from this list only: {', '.join(DISEASES)}
+Set confidence between 50-75 (since this is a low-confidence case).
+Keep advisory under 100 words."""
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                GROQ_URL,
+                headers={
+                    "Authorization": f"Bearer {GROQ_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "qwen/qwen3.6-27b",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.3,
+                    "max_tokens": 2000
+                }
+            )
+            data = response.json()
+            if "choices" in data and len(data["choices"]) > 0:
+                raw = strip_think_tags(data["choices"][0]["message"]["content"].strip())
+                import re
+                json_match = re.search(r'\{.*\}', raw, re.DOTALL)
+                if json_match:
+                    result = json.loads(json_match.group())
+                    return {
+                        "disease": result.get("disease", "Unknown"),
+                        "confidence": result.get("confidence", 55),
+                        "advisory": result.get("advisory", f"Please consult a qualified doctor for proper diagnosis.")
+                    }
+    except Exception:
+        pass
+
+    # Fallback — use highest ML prediction
+    if all_predictions:
+        top_disease = max(all_predictions, key=all_predictions.get)
+        return {
+            "disease": top_disease,
+            "confidence": 55,
+            "advisory": f"Based on your symptoms, you may have {top_disease}. Please consult a qualified doctor for proper diagnosis."
+        }
+    return {
+        "disease": "Unknown",
+        "confidence": 50,
+        "advisory": "We could not determine your condition clearly. Please visit a qualified doctor for proper diagnosis."
+    }
 
 async def get_advisory(disease: str, symptoms: List[str], confidence: float) -> str:
     advisory = await get_groq_advisory(disease, symptoms, confidence)
@@ -531,7 +602,23 @@ async def chat(request: ConversationRequest):
             question_count=request.question_count + 1
         )
 
-    # Step 6 — Enough info, give final prediction
+    # Step 6 — Final prediction
+    # If confidence still low after max questions, let LLM decide
+    if confidence < 60 and request.question_count >= max_questions:
+        llm_prediction = await get_llm_prediction(all_symptoms, all_predictions)
+        return ConversationResponse(
+            type="prediction",
+            source="LLM_PREDICTION",
+            disease=llm_prediction.get("disease"),
+            confidence=llm_prediction.get("confidence"),
+            level="INFO",
+            message=f'Based on our conversation, this may be {llm_prediction.get("disease")}. Please consult a qualified doctor for proper diagnosis.',
+            advisory=llm_prediction.get("advisory"),
+            all_predictions=all_predictions,
+            accumulated_symptoms=all_symptoms,
+            question_count=request.question_count
+        )
+
     advisory = await get_advisory(disease, all_symptoms, confidence)
 
     return ConversationResponse(
